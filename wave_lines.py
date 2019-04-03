@@ -3,8 +3,11 @@ import argparse
 import math
 import numpy as np
 import cv2
+import json
+import os
 
 import paper
+import plot_path
 
 class WaveLines():
 
@@ -62,22 +65,30 @@ class WaveLines():
         min_wave_length = 5 / 1000 # meters
         step_dist = 1 / 1000 #meters
 
+        path_list = []
         for line_i in range(num_lines):
             line_y_center = line_h*(0.5+line_i) + border
             x = border
             y = line_y_center
             theta = 0.0
             ratio = 1.0
+            path = []
+            path_list.append(path)
             while x < paper_w - border:
                 x_step = step_dist
                 x += x_step
 
-                theata_step = x_step/min_wave_length
+                theta_step = 2*math.pi*x_step/min_wave_length*ratio
+                theta += theta_step
 
+                y = line_y_center + max_r * ratio * math.sin(theta)
 
-
+                # print(y)
+                path.append((x,y))
 
         cv2.waitKey(0)
+
+        return path_list
 
 
 if __name__ == "__main__":
@@ -90,5 +101,13 @@ if __name__ == "__main__":
     img_np = cv2.imread(args.img_path)
     # img_np = cv2.cvtColor(img_np,cv2.COLOR_BGR2GRAY)
     wl = WaveLines()
+    path_list = wl.draw_image(img_np, "A4", "portrait", 2,5/1000)
 
-    wl.draw_image(img_np, "A4", "portrait", 2,5/1000)
+    plot_path.plot(path_list)
+    output_path = ".".join(args.img_path.split(".")[:-1]) + ".json"
+    print(output_path)
+
+    with open(output_path,'w') as f:
+        json_str = json.dumps(path_list)
+        f.write(json_str)
+        f.flush()
