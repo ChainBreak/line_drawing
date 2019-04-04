@@ -8,12 +8,15 @@ import os
 
 import paper
 import plot_path
+import path_thin
+
+img_debug = True
 
 class WaveLines():
 
     def draw_image(self,img_np,paper_size,paper_orientation,num_lines,border):
 
-        cv2.imshow("raw image",img_np)
+        if img_debug: cv2.imshow("raw image",img_np)
         #convert the image to grayscale if it is not already
         if len(img_np.shape) == 3:
             img_np = cv2.cvtColor(img_np,cv2.COLOR_BGR2GRAY)
@@ -44,50 +47,104 @@ class WaveLines():
 
         #take a crop out of the image that has the same aspect ratio as the paper
         img_np = img_np[y0:y1,x0:x1]
-        cv2.imshow("cropped image",img_np)
+        if img_debug: cv2.imshow("cropped image",img_np)
 
-        #get the new size of the image
-        image_h,image_w = img_np.shape
+        #Resize the image to a nominal size so that blurs and effects are proportionate
+        image_w,image_h = paper.size("A4",paper_orientation)
+        image_w = int(round(image_w*1000))
+        image_h = int(round(image_h*1000))
+        img_np = cv2.resize(img_np,(image_w,image_h))
+        if img_debug: cv2.imshow("nominal size",img_np)
 
-        #do histagram equalisation to spread the intensities output
+
+        #do histagram equalisation to spread the intensities out
         img_np = cv2.equalizeHist(img_np)
-        cv2.imshow("hist image",img_np)
+        if img_debug: cv2.imshow("hist image",img_np)
 
-        # #threashold the brghtest colors to plain white
-        # mask = img_np > 128
-        # img_np[mask] = 255
-        # cv2.imshow("white thresh image",img_np)
+        #blur the image to smooth it out
+        k = 7
+        img_np = cv2.GaussianBlur(img_np,(k,k),0)
+        img_np = cv2.GaussianBlur(img_np,(k,k),0)
+        # img_np = cv2.GaussianBlur(img_np,(k,k),0)
+        if img_debug: cv2.imshow("blur",img_np)
 
-        draw_w = paper_w - 2*border #meters
-        draw_h = paper_h - 2*border #meters
-        line_h = draw_h / num_lines #meters
-        max_r = line_h / 2 #meters
-        min_wave_length = 5 / 1000 # meters
-        step_dist = 1 / 1000 #meters
+
+        draw_h = paper_h - 2*border
+        draw_w = paper_w - 2*border
+
+        #calculate the distance in between lines
+        line_spacing = image_h / num_lines #pixels
+
+        #The maximum amplitute of a wave is half the line spacing
+        max_amplitute = line_spacing / 2 #pixels
+
+
+        min_wave_length = line_spacing / 3 #pixels
+        step_dist = 0.1  #pixels
 
         path_list = []
+
+        path_count = 0
+        point_count = 0
+
         for line_i in range(num_lines):
-            line_y_center = line_h*(0.5+line_i) + border
-            x = border
+            line_y_center = line_spacing*(0.5+line_i)
+            x = 0.0
             y = line_y_center
             theta = 0.0
-            ratio = 1.0
+
+            pixel_intensity = 0.0
+
             path = []
             path_list.append(path)
-            while x < paper_w - border:
-                x_step = step_dist
+            path_count += 1
+
+            first_point = True
+
+            #scan accros the image
+            while x < image_w:
+
+                xi = int(x)
+                yi = int(line_y_center)
+
+                #0 white 1 black
+                new_pixel_intensity = 1.0 - float(img_np[yi,xi] / 255)
+
+                if first_point:
+                    first_point = False
+                    pixel_intensity = new_pixel_intensity
+
+                #use lowpass filter to smooth out changes in pixel intensities
+                pixel_intensity += 0.1 * (new_pixel_intensity - pixel_intensity)
+
+
+                #the ratio between x and theta
+                theta_ratio = pixel_intensity * 2*math.pi/min_wave_length
+
+                #the x step is adjusted so that it takes smaller steps when its on stepper parts of the sign wave
+                x_step = math.sqrt( step_dist**2/ (1 + theta_ratio**2 * math.cos(theta)**2))
+
+                #step the x position along
                 x += x_step
 
-                theta_step = 2*math.pi*x_step/min_wave_length*ratio
-                theta += theta_step
+                #step the theata along acording to the theta ratio
+                theta += x_step * theta_ratio
 
-                y = line_y_center + max_r * ratio * math.sin(theta)
+                #calculate the y position.
+                y = line_y_center + max_amplitute * pixel_intensity * math.sin(theta)
 
-                # print(y)
-                path.append((x,y))
+                #scale from image coordinates to paper coordinates with border
+                x_draw = x / image_w * draw_w + border
+                y_draw = y / image_h * draw_h + border
 
-        cv2.waitKey(0)
+                #append this point to the path
+                path.append((x_draw,y_draw))
+                point_count += 1
 
+        cv2.waitKey(1)
+
+        print("path_count",path_count)
+        print("point_count", point_count)
         return path_list
 
 
@@ -101,13 +158,15 @@ if __name__ == "__main__":
     img_np = cv2.imread(args.img_path)
     # img_np = cv2.cvtColor(img_np,cv2.COLOR_BGR2GRAY)
     wl = WaveLines()
-    path_list = wl.draw_image(img_np, "A4", "portrait", 2,5/1000)
-
+    path_list = wl.draw_image(img_np, "A4", "portrait", 40,0.005)
     plot_path.plot(path_list)
+    path_list = path_thin.thin(path_list)
+
+
     output_path = ".".join(args.img_path.split(".")[:-1]) + ".json"
     print(output_path)
 
     with open(output_path,'w') as f:
-        json_str = json.dumps(path_list)
-        f.write(json_str)
-        f.flush()
+        json.dump(path_list,f,indent=4)
+
+    plot_path.plot(path_list)
