@@ -9,6 +9,7 @@ import os
 import paper
 import plot_path
 import path_thin
+import utils
 
 img_debug = True
 
@@ -17,48 +18,19 @@ class WaveLines():
     def draw_image(self,img_np,paper_size,paper_orientation,num_lines,border):
 
         if img_debug: cv2.imshow("raw image",img_np)
-        #convert the image to grayscale if it is not already
-        if len(img_np.shape) == 3:
-            img_np = cv2.cvtColor(img_np,cv2.COLOR_BGR2GRAY)
-
-        #get the size of the image
-        image_h,image_w = img_np.shape
-
-        #get the size of the paper
-        paper_w,paper_h = paper.size(paper_size,paper_orientation)
-
-        #calculate the aspect ratio of the paper
-        target_aspect = paper_w / paper_h
-
-
-        crop_h = image_h
-        crop_w = crop_h * target_aspect
-
-        if crop_w > image_w:
-            crop_w = image_w
-            crop_h = crop_w / target_aspect
-
-
-        #get the pixel coordinates of the center crop
-        x0 = int(round((image_w-crop_w)/2))
-        x1 = x0 + int(round(crop_w))
-        y0 = int(round((image_h-crop_h)/2))
-        y1 = y0 + int(round(crop_h))
-
-        #take a crop out of the image that has the same aspect ratio as the paper
-        img_np = img_np[y0:y1,x0:x1]
-        if img_debug: cv2.imshow("cropped image",img_np)
+        img_np = utils.ensure_gray(img_np)
 
         #Resize the image to a nominal size so that blurs and effects are proportionate
         image_w,image_h = paper.size("A4",paper_orientation)
         image_w = int(round(image_w*1000))
         image_h = int(round(image_h*1000))
-        img_np = cv2.resize(img_np,(image_w,image_h))
+        img_np = utils.crop_resize(img_np,image_w,image_h)
         if img_debug: cv2.imshow("nominal size",img_np)
 
 
         #do histagram equalisation to spread the intensities out
         img_np = cv2.equalizeHist(img_np)
+        cv2.namedWindow("hist image",0)
         if img_debug: cv2.imshow("hist image",img_np)
 
         #blur the image to smooth it out
@@ -68,7 +40,7 @@ class WaveLines():
         # img_np = cv2.GaussianBlur(img_np,(k,k),0)
         if img_debug: cv2.imshow("blur",img_np)
 
-
+        paper_w, paper_h = paper.size(paper_size,paper_orientation)
         draw_h = paper_h - 2*border
         draw_w = paper_w - 2*border
 
